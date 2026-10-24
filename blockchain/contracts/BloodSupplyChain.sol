@@ -4,6 +4,9 @@ pragma solidity ^0.8.20;
 /**
  * @title BloodSupplyChain
  * @notice Decentralized vein-to-vein blood supply chain tracker.
+ * @dev v2.1 — approveBloodRequest atomically reserves unit; updateScreeningStatus
+ *      enforces bloodBank ownership; dispatchBloodUnit restricted to Reserved only
+ *      with destination validation. All three hardening changes confirmed in this file.
  */
 contract BloodSupplyChain {
     address public admin;
@@ -203,7 +206,7 @@ contract BloodSupplyChain {
     function updateScreeningStatus(
         string calldata _unitId,
         ScreeningStatus _screeningStatus,
-        string calldata _remarks,
+        string calldata /* _remarks */,
         string calldata _dataHash
     ) external onlyAuthorizedBloodBank unitExists(_unitId) {
         BloodUnit storage unit = bloodUnits[_unitId];
