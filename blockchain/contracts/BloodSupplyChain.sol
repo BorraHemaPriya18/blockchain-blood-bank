@@ -207,6 +207,8 @@ contract BloodSupplyChain {
         string calldata _dataHash
     ) external onlyAuthorizedBloodBank unitExists(_unitId) {
         BloodUnit storage unit = bloodUnits[_unitId];
+        require(unit.bloodBank == msg.sender || msg.sender == admin, "Not the owning blood bank");
+        require(block.timestamp < unit.expiryTimestamp, "Unit has expired");
         require(unit.status == UnitStatus.Collected || unit.status == UnitStatus.PendingScreening, "Invalid state");
 
         unit.screeningStatus = _screeningStatus;
@@ -275,7 +277,9 @@ contract BloodSupplyChain {
     ) external onlyAuthorizedParticipant unitExists(_unitId) notExpired(_unitId) {
         BloodUnit storage unit = bloodUnits[_unitId];
         require(unit.currentCustodian == msg.sender || msg.sender == admin, "Not custodian");
-        require(unit.status == UnitStatus.Reserved || unit.status == UnitStatus.Received, "Invalid state");
+        require(unit.status == UnitStatus.Reserved, "Unit must be reserved before dispatch");
+        require(_destination == unit.hospital, "Destination does not match assigned hospital");
+        require(bytes(unit.requestId).length > 0, "Unit is not linked to a request");
 
         unit.status = UnitStatus.Dispatched;
         unit.dataHash = _dataHash;
@@ -356,50 +360,49 @@ contract BloodSupplyChain {
         string calldata _bloodGroup,
         string calldata _componentType,
         string calldata _unitId
-    ) external onlyAuthorizedBloodBank unitExists(_unitId) {
+    ) external onlyAuthorizedBloodBank unitExists(_unitId) notExpired(_unitId) {
         require(bytes(_requestId).length > 0, "Request ID empty");
-        require(!bloodRequests[_requestId].exists, "Request already approved");
+        require(!bloodRequests[_requestId].exists, "Request already exists");
         require(hospitals[_hospital].isAuthorized, "Hospital is not authorized");
         require(bytes(_bloodGroup).length > 0, "Blood group required");
         require(bytes(_componentType).length > 0, "Component type required");
 
         BloodUnit storage unit = bloodUnits[_unitId];
 
-        // Unit must be available (screened and not yet reserved)
-        require(unit.status == UnitStatus.Available, "Unit is not available for this request");
+        require(unit.status == UnitStatus.Available, "Unit is not available");
         require(unit.screeningStatus == ScreeningStatus.Passed, "Unit has not passed screening");
-
-        // Unit blood group must match the request's required blood group
         require(
             keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(_bloodGroup)),
-            "Unit blood group does not match request"
+            "Blood group mismatch"
         );
-
-        // Unit component type must match the request's required component type
         require(
             keccak256(bytes(unit.componentType)) == keccak256(bytes(_componentType)),
-            "Unit component type does not match request"
+            "Component type mismatch"
         );
+        require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit belongs to another blood bank");
+        require(unit.currentCustodian == unit.bloodBank, "Unit is not held by its blood bank");
 
-        // Unit must belong to the calling blood bank
-        require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit does not belong to this blood bank");
+        // Atomically reserve the unit to prevent duplicate allocation
+        unit.status = UnitStatus.Reserved;
+        unit.hospital = _hospital;
+        unit.requestId = _requestId;
 
-        // Unit must not be expired
-        require(block.timestamp < unit.expiryTimestamp, "Unit has expired");
-
+        // Store the actual owner bank so admin approvals are still traceable
         bloodRequests[_requestId] = BloodRequestRecord({
             requestId: _requestId,
             hospital: _hospital,
             bloodGroup: _bloodGroup,
             componentType: _componentType,
-            assignedBloodBank: msg.sender,
+            assignedBloodBank: unit.bloodBank,
             assignedUnitId: _unitId,
             isApproved: true,
             isFulfilled: false,
             exists: true
         });
 
-        emit BloodRequestApproved(_requestId, _hospital, msg.sender, _bloodGroup, _componentType);
+        _recordEvent(_unitId, "BloodUnitReserved", UnitStatus.Reserved, msg.sender, unit.dataHash);
+        emit BloodUnitReserved(_unitId, _hospital, _requestId, unit.dataHash);
+        emit BloodRequestApproved(_requestId, _hospital, unit.bloodBank, _bloodGroup, _componentType);
     }
 
     function fulfillBloodRequest(
