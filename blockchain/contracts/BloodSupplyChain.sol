@@ -54,6 +54,17 @@ contract BloodSupplyChain {
         string dataHash;
     }
 
+    struct BloodRequestRecord {
+        string requestId;
+        address hospital;
+        string bloodGroup;
+        string componentType;
+        address assignedBloodBank;
+        bool isApproved;
+        bool isFulfilled;
+        bool exists;
+    }
+
     struct EmergencyTransfer {
         string transferId;
         string unitId;
@@ -69,6 +80,7 @@ contract BloodSupplyChain {
     mapping(address => Hospital)  public hospitals;
     mapping(string  => BloodUnit) private bloodUnits;
     mapping(string => SupplyChainEvent[]) private unitEvents;
+    mapping(string => BloodRequestRecord) public bloodRequests;
     mapping(string => EmergencyTransfer)  public emergencyTransfers;
 
     string[]  private allUnitIds;
@@ -87,6 +99,8 @@ contract BloodSupplyChain {
     event BloodUnitTransfused(string indexed unitId, address indexed hospital, string patientRefHash, uint256 timestamp, string dataHash);
     event BloodUnitExpired(string indexed unitId, address indexed custodian, uint256 timestamp, string dataHash);
     event BloodUnitDiscarded(string indexed unitId, address indexed custodian, string reason, uint256 timestamp, string dataHash);
+    event BloodRequestApproved(string indexed requestId, address indexed hospital, address indexed bloodBank, string bloodGroup, string componentType);
+    event BloodRequestFulfilled(string indexed requestId, string indexed unitId, address indexed hospital, address bloodBank);
     event EmergencyRequestCreated(string indexed transferId, string indexed unitId, address indexed requestingHospital, address supplyingHospital, string urgency);
     event BloodTransferCompleted(string indexed transferId, string indexed unitId, address indexed receivingHospital, uint256 completionTimestamp);
 
@@ -333,6 +347,61 @@ contract BloodSupplyChain {
         address actor = (msg.sender == admin && unit.currentCustodian != address(0)) ? unit.currentCustodian : msg.sender;
         _recordEvent(_unitId, "Discarded", UnitStatus.Discarded, actor, _dataHash);
         emit BloodUnitDiscarded(_unitId, actor, _reason, block.timestamp, _dataHash);
+    }
+
+    function approveBloodRequest(
+        string calldata _requestId,
+        address _hospital,
+        string calldata _bloodGroup,
+        string calldata _componentType
+    ) external onlyAuthorizedBloodBank {
+        require(bytes(_requestId).length > 0, "Request ID empty");
+        require(!bloodRequests[_requestId].exists, "Request already approved");
+        require(hospitals[_hospital].isAuthorized, "Hospital is not authorized");
+        require(bytes(_bloodGroup).length > 0, "Blood group required");
+        require(bytes(_componentType).length > 0, "Component type required");
+
+        bloodRequests[_requestId] = BloodRequestRecord({
+            requestId: _requestId,
+            hospital: _hospital,
+            bloodGroup: _bloodGroup,
+            componentType: _componentType,
+            assignedBloodBank: msg.sender,
+            isApproved: true,
+            isFulfilled: false,
+            exists: true
+        });
+
+        emit BloodRequestApproved(_requestId, _hospital, msg.sender, _bloodGroup, _componentType);
+    }
+
+    function fulfillBloodRequest(
+        string calldata _requestId,
+        string calldata _unitId
+    ) external onlyAuthorizedBloodBank unitExists(_unitId) {
+        BloodRequestRecord storage req = bloodRequests[_requestId];
+        require(req.exists, "Request not approved on-chain");
+        require(req.isApproved, "Request is not approved");
+        require(!req.isFulfilled, "Request already fulfilled");
+        require(req.assignedBloodBank == msg.sender || msg.sender == admin, "Not the assigned blood bank");
+
+        BloodUnit storage unit = bloodUnits[_unitId];
+        require(unit.status == UnitStatus.Received, "Unit must be received before fulfillment");
+        require(unit.hospital == req.hospital, "Unit is not assigned to the requesting hospital");
+        require(
+            keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(req.bloodGroup)),
+            "Unit blood group does not match request"
+        );
+        require(
+            keccak256(bytes(unit.componentType)) == keccak256(bytes(req.componentType)),
+            "Unit component type does not match request"
+        );
+        require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit does not belong to this blood bank");
+        require(block.timestamp < unit.expiryTimestamp, "Unit has expired");
+
+        req.isFulfilled = true;
+
+        emit BloodRequestFulfilled(_requestId, _unitId, req.hospital, msg.sender);
     }
 
     function createEmergencyTransfer(

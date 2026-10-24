@@ -38,30 +38,20 @@ function resetNonce(addr) {
   else accountNonceMap.clear();
 }
 
-function initBlockchain() {
-  const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
+function initProvider() {
+  if (provider) return;
+  const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:7545';
   provider = new ethers.JsonRpcProvider(rpcUrl);
 
-  const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
-  const hardcodedFallback = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-
-  if (!process.env.ADMIN_PRIVATE_KEY && !isDev) {
-    throw new Error('[Blockchain] ADMIN_PRIVATE_KEY environment variable is required in non-development environments.');
-  }
-
-  const adminPrivateKey = process.env.ADMIN_PRIVATE_KEY || hardcodedFallback;
-
-  const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
-
-  // Load contract deployment info if exists
   const configPath = path.join(__dirname, '../config/BloodSupplyChain.json');
   if (fs.existsSync(configPath)) {
     try {
       const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       contractAddress = process.env.CONTRACT_ADDRESS || configData.address;
       contractAbi = configData.abi;
-      if (contractAddress && contractAbi && adminWallet) {
-        contractInstance = new ethers.Contract(contractAddress, contractAbi, adminWallet);
+      if (contractAddress && contractAbi) {
+        // Attach read-only instance (no signer needed for view calls)
+        contractInstance = new ethers.Contract(contractAddress, contractAbi, provider);
         console.log(`[Blockchain] Contract attached at ${contractAddress}`);
       }
     } catch (err) {
@@ -72,10 +62,25 @@ function initBlockchain() {
   }
 }
 
+function initBlockchain() {
+  initProvider();
+
+  if (!process.env.ADMIN_PRIVATE_KEY) {
+    throw new Error('[Blockchain] ADMIN_PRIVATE_KEY environment variable is required.');
+  }
+
+  // Re-attach contract with admin signer for write operations
+  if (contractAddress && contractAbi) {
+    const adminWallet = new ethers.Wallet(process.env.ADMIN_PRIVATE_KEY, provider);
+    contractInstance = new ethers.Contract(contractAddress, contractAbi, adminWallet);
+  }
+}
+
 // Helper to get signer with a fresh wallet instance connected to provider to prevent internal nonce caching
 function getSigner(privateKey) {
-  if (!provider) initBlockchain();
-  const pk = privateKey || process.env.ADMIN_PRIVATE_KEY || '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+  initProvider();
+  const pk = privateKey || process.env.ADMIN_PRIVATE_KEY;
+  if (!pk) throw new Error('[Blockchain] No private key available for signer.');
   return new ethers.Wallet(pk, provider);
 }
 
@@ -335,7 +340,7 @@ async function completeEmergencyTransferOnChain(transferId, dataHash, privateKey
 }
 
 async function getBloodUnitFromChain(unitId) {
-  if (!contractInstance) initBlockchain();
+  if (!contractInstance) initProvider();
   if (!contractInstance) return null;
   try {
     const raw = await contractInstance.getBloodUnit(unitId);
@@ -358,7 +363,7 @@ async function getBloodUnitFromChain(unitId) {
 }
 
 async function getUnitEventsFromChain(unitId) {
-  if (!contractInstance) initBlockchain();
+  if (!contractInstance) initProvider();
   if (!contractInstance) return [];
   try {
     const events = await contractInstance.getUnitEvents(unitId);
@@ -377,7 +382,7 @@ async function getUnitEventsFromChain(unitId) {
 }
 
 async function getContractEvents(limit = 100) {
-  if (!contractInstance) initBlockchain();
+  if (!contractInstance) initProvider();
   if (!contractInstance) return [];
   try {
     const events = await contractInstance.queryFilter('*', 0, 'latest');
@@ -398,7 +403,7 @@ async function getContractEvents(limit = 100) {
 }
 
 async function verifyDataIntegrityOnChain(unitId, expectedHash) {
-  if (!contractInstance) initBlockchain();
+  if (!contractInstance) initProvider();
   if (!contractInstance) return false;
   try {
     return await contractInstance.verifyDataIntegrity(unitId, expectedHash);
@@ -409,7 +414,7 @@ async function verifyDataIntegrityOnChain(unitId, expectedHash) {
 
 async function isBlockchainConnected() {
   try {
-    if (!provider) initBlockchain();
+    if (!provider) initProvider();
     const network = await provider.getNetwork();
     const blockNumber = await provider.getBlockNumber();
     return {
@@ -431,7 +436,7 @@ async function isBlockchainConnected() {
  * up to the requested target status before downstream actions are executed.
  */
 async function ensureUnitOnChain(unit, targetState = 'available', extraParams = {}) {
-  if (!contractInstance) initBlockchain();
+  if (!contractInstance) initProvider();
   if (!contractInstance) return null;
 
   try {
@@ -506,7 +511,7 @@ async function ensureUnitOnChain(unit, targetState = 'available', extraParams = 
  * Ensures an emergency transfer request is registered on-chain before completing it.
  */
 async function ensureTransferOnChain(transfer, supplyingHospitalAddress, urgency) {
-  if (!contractInstance) initBlockchain();
+  if (!contractInstance) initProvider();
   if (!contractInstance) return null;
   try {
     const raw = await contractInstance.emergencyTransfers(transfer.transferId);
