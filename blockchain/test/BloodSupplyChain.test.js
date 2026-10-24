@@ -521,6 +521,28 @@ describe("BloodSupplyChain Smart Contract", function () {
       ).to.be.revertedWith("Unit must be received before fulfillment");
     });
 
+    it("Should reject fulfillment when unit custody has moved to a different hospital", async function () {
+      // Approve for hospitalA, but the unit ends up received by hospitalB via emergency transfer
+      await contract.connect(bloodBank).approveBloodRequest(
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+      );
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, reqId, updatedHash, sampleBloodGroup, sampleComponent
+      );
+      await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-G1", updatedHash);
+      await contract.connect(hospitalA).receiveBloodUnit(sampleUnitId, updatedHash);
+
+      // Emergency transfer moves both unit.hospital and currentCustodian to hospitalB
+      const emgId = "EMG-CUSTODY-TEST";
+      await contract.connect(hospitalB).createEmergencyTransfer(emgId, sampleUnitId, hospitalA.address, "CRITICAL");
+      await contract.connect(hospitalB).completeEmergencyTransfer(emgId, updatedHash);
+      // unit.hospital == hospitalB, unit.currentCustodian == hospitalB, but req.hospital == hospitalA
+
+      await expect(
+        contract.connect(bloodBank).fulfillBloodRequest(reqId)
+      ).to.be.revertedWith("Unit was not delivered to the requesting hospital");
+    });
+
     it("Should reject fulfillment from a different (wrong) blood bank", async function () {
       await contract.connect(bloodBank).approveBloodRequest(
         reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId

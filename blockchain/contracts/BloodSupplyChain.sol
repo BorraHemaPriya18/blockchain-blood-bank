@@ -419,8 +419,9 @@ contract BloodSupplyChain {
         // Unit must have been physically delivered (Received) before fulfillment
         require(unit.status == UnitStatus.Received, "Unit must be received before fulfillment");
 
-        // Delivery must be to the correct hospital
+        // Delivery must be to the correct hospital — both assignment and physical custody must match
         require(unit.hospital == req.hospital, "Unit was not delivered to the requesting hospital");
+        require(unit.currentCustodian == req.hospital, "Unit is not in custody of the requesting hospital");
 
         // Re-verify blood group against the locked request requirement
         require(
