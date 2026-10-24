@@ -1,0 +1,17 @@
+{
+  "name": "blood-supply-chain-system",
+  "version": "1.0.0",
+  "description": "Blockchain in Blood Bank Supply Management - Root Workspace",
+  "scripts": {
+    "node": "npm --prefix blockchain run node",
+    "ganache": "npm --prefix blockchain run ganache",
+    "deploy:ganache": "npm --prefix blockchain run deploy:ganache",
+    "deploy": "npm --prefix blockchain run deploy:local",
+    "test:contracts": "npm --prefix blockchain test",
+    "test:backend": "npm --prefix backend test",
+    "test": "npm --prefix blockchain test && npm --prefix backend test",
+    "seed": "npm --prefix backend run seed",
+    "backend": "npm --prefix backend start",
+    "frontend": "npm --prefix frontend run dev"
+  }
+}

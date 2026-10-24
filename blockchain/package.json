@@ -1,0 +1,21 @@
+{
+  "name": "blood-supply-chain-blockchain",
+  "version": "1.0.0",
+  "description": "Smart contracts and tests for Blood Bank Supply Management",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "ganache": "ganache --port 8545 --wallet.mnemonic \"test test test test test test test test test test test junk\" --chain.chainId 1337",
+    "ganache:gui": "ganache --port 7545 --wallet.mnemonic \"test test test test test test test test test test test junk\" --chain.chainId 1337",
+    "deploy:ganache": "hardhat run scripts/deploy.js --network ganache",
+    "deploy:ganache:gui": "hardhat run scripts/deploy.js --network ganacheGui",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "ganache": "^7.9.2",
+    "hardhat": "^2.22.2"
+  }
+}
