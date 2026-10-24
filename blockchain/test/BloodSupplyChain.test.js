@@ -399,30 +399,30 @@ describe("BloodSupplyChain Smart Contract", function () {
         sampleUnitId, sampleBloodGroup, sampleComponent, now, expiry, initialHash
       );
       await contract.connect(bloodBank).updateScreeningStatus(sampleUnitId, 1, "Passed", updatedHash);
-      await contract.connect(bloodBank).reserveBloodUnit(
-        sampleUnitId, hospitalA.address, reqId, updatedHash, sampleBloodGroup, sampleComponent
-      );
-      await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-G1", updatedHash);
-      await contract.connect(hospitalA).receiveBloodUnit(sampleUnitId, updatedHash);
-
-      // Approve the request on-chain
-      await contract.connect(bloodBank).approveBloodRequest(
-        reqId, hospitalA.address, sampleBloodGroup, sampleComponent
-      );
+      // NOTE: approveBloodRequest is called BEFORE reserve — unit must be Available at approval time
     });
 
-    it("Should approve a blood request and store it correctly", async function () {
+    // ── approveBloodRequest guards ────────────────────────────────────────────
+
+    it("Should approve a blood request and lock the unit into the record", async function () {
+      await contract.connect(bloodBank).approveBloodRequest(
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+      );
       const rec = await contract.bloodRequests(reqId);
       expect(rec.isApproved).to.be.true;
       expect(rec.isFulfilled).to.be.false;
       expect(rec.hospital).to.equal(hospitalA.address);
       expect(rec.assignedBloodBank).to.equal(bloodBank.address);
+      expect(rec.assignedUnitId).to.equal(sampleUnitId);
     });
 
     it("Should reject duplicate approval of the same request ID", async function () {
+      await contract.connect(bloodBank).approveBloodRequest(
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+      );
       await expect(
         contract.connect(bloodBank).approveBloodRequest(
-          reqId, hospitalA.address, sampleBloodGroup, sampleComponent
+          reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
         )
       ).to.be.revertedWith("Request already approved");
     });
@@ -430,14 +430,65 @@ describe("BloodSupplyChain Smart Contract", function () {
     it("Should reject approval for an unauthorized hospital address", async function () {
       await expect(
         contract.connect(bloodBank).approveBloodRequest(
-          "REQ-GUARD-002", unauthorizedUser.address, sampleBloodGroup, sampleComponent
+          "REQ-GUARD-002", unauthorizedUser.address, sampleBloodGroup, sampleComponent, sampleUnitId
         )
       ).to.be.revertedWith("Hospital is not authorized");
     });
 
-    it("Should fulfill a request and emit BloodRequestFulfilled", async function () {
+    it("Should reject approval when unit blood group does not match request", async function () {
       await expect(
-        contract.connect(bloodBank).fulfillBloodRequest(reqId, sampleUnitId)
+        contract.connect(bloodBank).approveBloodRequest(
+          "REQ-GUARD-BG", hospitalA.address, "AB-", sampleComponent, sampleUnitId
+        )
+      ).to.be.revertedWith("Unit blood group does not match request");
+    });
+
+    it("Should reject approval when component type does not match request", async function () {
+      await expect(
+        contract.connect(bloodBank).approveBloodRequest(
+          "REQ-GUARD-CT", hospitalA.address, sampleBloodGroup, "Platelets", sampleUnitId
+        )
+      ).to.be.revertedWith("Unit component type does not match request");
+    });
+
+    it("Should reject approval when unit belongs to a different blood bank", async function () {
+      // Register a second blood bank and try to approve using bloodBank's unit
+      await contract.registerBloodBank(unauthorizedUser.address, "Second Blood Bank", "BB-LIC-002", true);
+      await expect(
+        contract.connect(unauthorizedUser).approveBloodRequest(
+          "REQ-GUARD-BB", hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+        )
+      ).to.be.revertedWith("Unit does not belong to this blood bank");
+    });
+
+    it("Should reject approval when unit is not Available (e.g. still Collected)", async function () {
+      const unitId2 = "BLD-GUARD-NOTAVAIL";
+      await contract.connect(bloodBank).registerBloodUnit(
+        unitId2, sampleBloodGroup, sampleComponent, now, expiry, initialHash
+      );
+      // Unit is Collected — screening not done yet
+      await expect(
+        contract.connect(bloodBank).approveBloodRequest(
+          "REQ-GUARD-NA", hospitalA.address, sampleBloodGroup, sampleComponent, unitId2
+        )
+      ).to.be.revertedWith("Unit is not available for this request");
+    });
+
+    // ── fulfillBloodRequest guards ────────────────────────────────────────────
+
+    it("Should fulfill a request after unit is received and emit BloodRequestFulfilled", async function () {
+      await contract.connect(bloodBank).approveBloodRequest(
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+      );
+      // Reserve → dispatch → receive the locked unit
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, reqId, updatedHash, sampleBloodGroup, sampleComponent
+      );
+      await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-G1", updatedHash);
+      await contract.connect(hospitalA).receiveBloodUnit(sampleUnitId, updatedHash);
+
+      await expect(
+        contract.connect(bloodBank).fulfillBloodRequest(reqId)
       )
         .to.emit(contract, "BloodRequestFulfilled")
         .withArgs(reqId, sampleUnitId, hospitalA.address, bloodBank.address);
@@ -446,82 +497,59 @@ describe("BloodSupplyChain Smart Contract", function () {
       expect(rec.isFulfilled).to.be.true;
     });
 
-    it("Should reject fulfillment before unit is received (wrong status)", async function () {
-      const unitId2 = "BLD-GUARD-002";
-      await contract.connect(bloodBank).registerBloodUnit(
-        unitId2, sampleBloodGroup, sampleComponent, now, expiry, initialHash
-      );
-      await contract.connect(bloodBank).updateScreeningStatus(unitId2, 1, "Passed", updatedHash);
-      // Unit is Available — not yet dispatched/received
-
-      const reqId2 = "REQ-GUARD-003";
+    it("Should reject fulfillment before unit is received (unit still Available)", async function () {
       await contract.connect(bloodBank).approveBloodRequest(
-        reqId2, hospitalA.address, sampleBloodGroup, sampleComponent
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
       );
-
+      // Unit is Available — not yet dispatched/received
       await expect(
-        contract.connect(bloodBank).fulfillBloodRequest(reqId2, unitId2)
+        contract.connect(bloodBank).fulfillBloodRequest(reqId)
       ).to.be.revertedWith("Unit must be received before fulfillment");
     });
 
-    it("Should reject fulfillment when unit blood group does not match request", async function () {
-      const unitId3 = "BLD-GUARD-003";
-      await contract.connect(bloodBank).registerBloodUnit(
-        unitId3, "B+", sampleComponent, now, expiry, initialHash
-      );
-      await contract.connect(bloodBank).updateScreeningStatus(unitId3, 1, "Passed", updatedHash);
-      await contract.connect(bloodBank).reserveBloodUnit(
-        unitId3, hospitalA.address, "REQ-GUARD-BG", updatedHash, "B+", sampleComponent
-      );
-      await contract.connect(bloodBank).dispatchBloodUnit(unitId3, hospitalA.address, "SHIP-G3", updatedHash);
-      await contract.connect(hospitalA).receiveBloodUnit(unitId3, updatedHash);
-
-      const reqId3 = "REQ-GUARD-004";
+    it("Should reject fulfillment before unit is received (unit only Dispatched)", async function () {
       await contract.connect(bloodBank).approveBloodRequest(
-        reqId3, hospitalA.address, sampleBloodGroup, sampleComponent // O+
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
       );
-
-      await expect(
-        contract.connect(bloodBank).fulfillBloodRequest(reqId3, unitId3) // B+ unit
-      ).to.be.revertedWith("Unit blood group does not match request");
-    });
-
-    it("Should reject fulfillment when component type does not match request", async function () {
-      const unitId4 = "BLD-GUARD-004";
-      await contract.connect(bloodBank).registerBloodUnit(
-        unitId4, sampleBloodGroup, "Platelets", now, expiry, initialHash
-      );
-      await contract.connect(bloodBank).updateScreeningStatus(unitId4, 1, "Passed", updatedHash);
       await contract.connect(bloodBank).reserveBloodUnit(
-        unitId4, hospitalA.address, "REQ-GUARD-CT", updatedHash, sampleBloodGroup, "Platelets"
+        sampleUnitId, hospitalA.address, reqId, updatedHash, sampleBloodGroup, sampleComponent
       );
-      await contract.connect(bloodBank).dispatchBloodUnit(unitId4, hospitalA.address, "SHIP-G4", updatedHash);
-      await contract.connect(hospitalA).receiveBloodUnit(unitId4, updatedHash);
-
-      const reqId4 = "REQ-GUARD-005";
-      await contract.connect(bloodBank).approveBloodRequest(
-        reqId4, hospitalA.address, sampleBloodGroup, sampleComponent // Whole Blood
-      );
-
+      await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-G1", updatedHash);
+      // Unit is Dispatched — not yet received
       await expect(
-        contract.connect(bloodBank).fulfillBloodRequest(reqId4, unitId4) // Platelets unit
-      ).to.be.revertedWith("Unit component type does not match request");
+        contract.connect(bloodBank).fulfillBloodRequest(reqId)
+      ).to.be.revertedWith("Unit must be received before fulfillment");
     });
 
     it("Should reject fulfillment from a different (wrong) blood bank", async function () {
-      // Register a second blood bank using the unauthorizedUser signer
-      await contract.registerBloodBank(unauthorizedUser.address, "Second Blood Bank", "BB-LIC-002", true);
+      await contract.connect(bloodBank).approveBloodRequest(
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+      );
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, reqId, updatedHash, sampleBloodGroup, sampleComponent
+      );
+      await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-G1", updatedHash);
+      await contract.connect(hospitalA).receiveBloodUnit(sampleUnitId, updatedHash);
 
+      await contract.registerBloodBank(unauthorizedUser.address, "Second Blood Bank", "BB-LIC-002", true);
       await expect(
-        contract.connect(unauthorizedUser).fulfillBloodRequest(reqId, sampleUnitId)
+        contract.connect(unauthorizedUser).fulfillBloodRequest(reqId)
       ).to.be.revertedWith("Not the assigned blood bank");
     });
 
     it("Should reject double fulfillment of the same request", async function () {
-      await contract.connect(bloodBank).fulfillBloodRequest(reqId, sampleUnitId);
+      await contract.connect(bloodBank).approveBloodRequest(
+        reqId, hospitalA.address, sampleBloodGroup, sampleComponent, sampleUnitId
+      );
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, reqId, updatedHash, sampleBloodGroup, sampleComponent
+      );
+      await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-G1", updatedHash);
+      await contract.connect(hospitalA).receiveBloodUnit(sampleUnitId, updatedHash);
+      await contract.connect(bloodBank).fulfillBloodRequest(reqId);
 
       await expect(
-        contract.connect(bloodBank).fulfillBloodRequest(reqId, sampleUnitId)
+        contract.connect(bloodBank).fulfillBloodRequest(reqId)
       ).to.be.revertedWith("Request already fulfilled");
     });
   });

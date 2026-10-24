@@ -60,6 +60,7 @@ contract BloodSupplyChain {
         string bloodGroup;
         string componentType;
         address assignedBloodBank;
+        string assignedUnitId;   // unit locked at approval time
         bool isApproved;
         bool isFulfilled;
         bool exists;
@@ -353,13 +354,38 @@ contract BloodSupplyChain {
         string calldata _requestId,
         address _hospital,
         string calldata _bloodGroup,
-        string calldata _componentType
-    ) external onlyAuthorizedBloodBank {
+        string calldata _componentType,
+        string calldata _unitId
+    ) external onlyAuthorizedBloodBank unitExists(_unitId) {
         require(bytes(_requestId).length > 0, "Request ID empty");
         require(!bloodRequests[_requestId].exists, "Request already approved");
         require(hospitals[_hospital].isAuthorized, "Hospital is not authorized");
         require(bytes(_bloodGroup).length > 0, "Blood group required");
         require(bytes(_componentType).length > 0, "Component type required");
+
+        BloodUnit storage unit = bloodUnits[_unitId];
+
+        // Unit must be available (screened and not yet reserved)
+        require(unit.status == UnitStatus.Available, "Unit is not available for this request");
+        require(unit.screeningStatus == ScreeningStatus.Passed, "Unit has not passed screening");
+
+        // Unit blood group must match the request's required blood group
+        require(
+            keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(_bloodGroup)),
+            "Unit blood group does not match request"
+        );
+
+        // Unit component type must match the request's required component type
+        require(
+            keccak256(bytes(unit.componentType)) == keccak256(bytes(_componentType)),
+            "Unit component type does not match request"
+        );
+
+        // Unit must belong to the calling blood bank
+        require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit does not belong to this blood bank");
+
+        // Unit must not be expired
+        require(block.timestamp < unit.expiryTimestamp, "Unit has expired");
 
         bloodRequests[_requestId] = BloodRequestRecord({
             requestId: _requestId,
@@ -367,6 +393,7 @@ contract BloodSupplyChain {
             bloodGroup: _bloodGroup,
             componentType: _componentType,
             assignedBloodBank: msg.sender,
+            assignedUnitId: _unitId,
             isApproved: true,
             isFulfilled: false,
             exists: true
@@ -376,32 +403,45 @@ contract BloodSupplyChain {
     }
 
     function fulfillBloodRequest(
-        string calldata _requestId,
-        string calldata _unitId
-    ) external onlyAuthorizedBloodBank unitExists(_unitId) {
+        string calldata _requestId
+    ) external onlyAuthorizedBloodBank {
         BloodRequestRecord storage req = bloodRequests[_requestId];
         require(req.exists, "Request not approved on-chain");
         require(req.isApproved, "Request is not approved");
         require(!req.isFulfilled, "Request already fulfilled");
         require(req.assignedBloodBank == msg.sender || msg.sender == admin, "Not the assigned blood bank");
 
-        BloodUnit storage unit = bloodUnits[_unitId];
+        string memory unitId = req.assignedUnitId;
+        require(bloodUnits[unitId].exists, "Assigned unit does not exist");
+
+        BloodUnit storage unit = bloodUnits[unitId];
+
+        // Unit must have been physically delivered (Received) before fulfillment
         require(unit.status == UnitStatus.Received, "Unit must be received before fulfillment");
-        require(unit.hospital == req.hospital, "Unit is not assigned to the requesting hospital");
+
+        // Delivery must be to the correct hospital
+        require(unit.hospital == req.hospital, "Unit was not delivered to the requesting hospital");
+
+        // Re-verify blood group against the locked request requirement
         require(
             keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(req.bloodGroup)),
             "Unit blood group does not match request"
         );
+
+        // Re-verify component type against the locked request requirement
         require(
             keccak256(bytes(unit.componentType)) == keccak256(bytes(req.componentType)),
             "Unit component type does not match request"
         );
+
+        // Confirm the unit still belongs to the fulfilling blood bank
         require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit does not belong to this blood bank");
+
         require(block.timestamp < unit.expiryTimestamp, "Unit has expired");
 
         req.isFulfilled = true;
 
-        emit BloodRequestFulfilled(_requestId, _unitId, req.hospital, msg.sender);
+        emit BloodRequestFulfilled(_requestId, unitId, req.hospital, msg.sender);
     }
 
     function createEmergencyTransfer(
