@@ -42,9 +42,14 @@ function initBlockchain() {
   const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
   provider = new ethers.JsonRpcProvider(rpcUrl);
 
-  const adminPrivateKey =
-    process.env.ADMIN_PRIVATE_KEY ||
-    '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'; // Default Account #0
+  const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+  const hardcodedFallback = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+  if (!process.env.ADMIN_PRIVATE_KEY && !isDev) {
+    throw new Error('[Blockchain] ADMIN_PRIVATE_KEY environment variable is required in non-development environments.');
+  }
+
+  const adminPrivateKey = process.env.ADMIN_PRIVATE_KEY || hardcodedFallback;
 
   const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
 
@@ -160,14 +165,22 @@ async function updateScreeningOnChain(unitId, screeningStatusCode, remarks, data
   });
 }
 
-async function reserveBloodUnitOnChain(unitId, hospitalAddress, requestId, dataHash, privateKey) {
+async function reserveBloodUnitOnChain(unitId, hospitalAddress, requestId, dataHash, requestBloodGroup, requestComponentType, privateKey) {
   return queueTx(async () => {
     const signer = getSigner(privateKey);
     const contract = getContractWithSigner(signer);
     const nonce = await getNextNonce(signer);
     const overrides = nonce !== undefined ? { nonce } : {};
     try {
-      const tx = await contract.reserveBloodUnit(unitId, hospitalAddress, requestId, dataHash, overrides);
+      const tx = await contract.reserveBloodUnit(
+        unitId,
+        hospitalAddress,
+        requestId,
+        dataHash,
+        requestBloodGroup || '',
+        requestComponentType || '',
+        overrides
+      );
       const receipt = await tx.wait(1);
       return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
     } catch (err) {
@@ -453,7 +466,14 @@ async function ensureUnitOnChain(unit, targetState = 'available', extraParams = 
     if (['reserved', 'dispatched', 'received', 'transfused'].includes(targetState) && onChain.status === 3) {
       const hospitalAddr = extraParams.hospitalWallet || (unit.reservedHospital && unit.reservedHospital.walletAddress) || '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
       const reqId = extraParams.requestId || unit.hospitalRequestId || 'REQ-INITIAL';
-      await reserveBloodUnitOnChain(unit.unitId, hospitalAddr, reqId, unit.dataHash || onChain.dataHash);
+      await reserveBloodUnitOnChain(
+        unit.unitId,
+        hospitalAddr,
+        reqId,
+        unit.dataHash || onChain.dataHash,
+        unit.bloodGroup || '',
+        unit.componentType || ''
+      );
       onChain = await getBloodUnitFromChain(unit.unitId);
     }
 

@@ -1,32 +1,13 @@
 {
-  "address": "0xdc08e3f1951A6A640Da4A02dB96EcdAFE39737B3",
+  "address": "0xc4b604A7308d76725f3545153349276995661b37",
   "deployer": "0x8A992ec5ef44bad758f039Bf5B865389b5c36561",
   "network": "localhost",
-  "deployedAt": "2026-10-24T08:44:28.817Z",
+  "deployedAt": "2026-10-24T10:40:30.861Z",
   "abi": [
     {
       "inputs": [],
       "stateMutability": "nonpayable",
       "type": "constructor"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "previousAdmin",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "newAdmin",
-          "type": "address"
-        }
-      ],
-      "name": "AdminTransferred",
-      "type": "event"
     },
     {
       "anonymous": false,
@@ -565,39 +546,6 @@
       "inputs": [
         {
           "internalType": "string",
-          "name": "_transferId",
-          "type": "string"
-        },
-        {
-          "internalType": "string",
-          "name": "_unitId",
-          "type": "string"
-        },
-        {
-          "internalType": "address",
-          "name": "_requestingHospital",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_supplyingHospital",
-          "type": "address"
-        },
-        {
-          "internalType": "string",
-          "name": "_urgency",
-          "type": "string"
-        }
-      ],
-      "name": "createEmergencyTransfer",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "string",
           "name": "_unitId",
           "type": "string"
         },
@@ -694,6 +642,32 @@
           "internalType": "string",
           "name": "urgency",
           "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getAllBloodBankAddresses",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getAllHospitalAddresses",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
         }
       ],
       "stateMutability": "view",
@@ -808,11 +782,6 @@
           "components": [
             {
               "internalType": "string",
-              "name": "unitId",
-              "type": "string"
-            },
-            {
-              "internalType": "string",
               "name": "eventType",
               "type": "string"
             },
@@ -830,11 +799,6 @@
               "internalType": "uint256",
               "name": "timestamp",
               "type": "uint256"
-            },
-            {
-              "internalType": "string",
-              "name": "remarks",
-              "type": "string"
             },
             {
               "internalType": "string",
@@ -1074,19 +1038,6 @@
         }
       ],
       "name": "setHospitalAuthorization",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_newAdmin",
-          "type": "address"
-        }
-      ],
-      "name": "transferAdmin",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

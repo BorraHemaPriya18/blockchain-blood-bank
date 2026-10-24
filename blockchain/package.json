@@ -7,7 +7,7 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "node": "hardhat node",
-    "ganache": "ganache --port 8545 --wallet.mnemonic \"test test test test test test test test test test test junk\" --chain.chainId 1337",
+    "ganache": "ganache --port 7545 --wallet.mnemonic \"test test test test test test test test test test test junk\" --chain.chainId 1337",
     "ganache:gui": "ganache --port 7545 --wallet.mnemonic \"test test test test test test test test test test test junk\" --chain.chainId 1337",
     "deploy:ganache": "hardhat run scripts/deploy.js --network ganache",
     "deploy:ganache:gui": "hardhat run scripts/deploy.js --network ganacheGui",

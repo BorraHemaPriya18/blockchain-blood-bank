@@ -299,15 +299,39 @@ describe('Blood Supply Chain API Acceptance Tests', () => {
       const verifyGood = await request(app).get(`/api/blood-units/${testUnitId}/verify`);
       expect(verifyGood.status).toBe(200);
       expect(verifyGood.body.isTamperFree).toBe(true);
+      expect(verifyGood.body.calculatedHash).toBeDefined();
+      expect(verifyGood.body.blockchainHash).toBeDefined();
+      // Hashes must match on an untampered record
+      expect(verifyGood.body.calculatedHash).toBe(verifyGood.body.blockchainHash);
 
       // Maliciously tamper with MongoDB record directly
       await BloodUnit.updateOne({ unitId: testUnitId }, { $set: { bloodGroup: 'AB-' } });
 
-      // Re-verify integrity
+      // Re-verify integrity — must detect tampering
       const verifyTampered = await request(app).get(`/api/blood-units/${testUnitId}/verify`);
       expect(verifyTampered.status).toBe(200);
       expect(verifyTampered.body.isTamperFree).toBe(false);
       expect(verifyTampered.body.message).toContain('INTEGRITY ALERT');
+      // Hashes must now differ
+      expect(verifyTampered.body.calculatedHash).not.toBe(verifyTampered.body.blockchainHash);
+    });
+
+    it('Criteria 17: Hash is recalculated consistently from the same record fields', async () => {
+      // Restore the tampered record to a known state
+      await BloodUnit.updateOne({ unitId: testUnitId }, { $set: { bloodGroup: 'O+' } });
+      const unit = await BloodUnit.findOne({ unitId: testUnitId });
+
+      // Compute hash twice from the same document — must be deterministic
+      const integrityService = require('../src/services/integrityService');
+      const hash1 = integrityService.computeUnitHash(unit);
+      const hash2 = integrityService.computeUnitHash(unit);
+      expect(hash1).toBe(hash2);
+
+      // Changing a tracked field must produce a different hash
+      const mutated = unit.toObject();
+      mutated.status = 'transfused';
+      const hash3 = integrityService.computeUnitHash(mutated);
+      expect(hash3).not.toBe(hash1);
     });
 
     it('Criteria 18: Dashboard statistics reflect database records accurately', async () => {

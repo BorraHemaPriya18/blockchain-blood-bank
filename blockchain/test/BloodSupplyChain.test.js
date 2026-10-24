@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+require("@nomicfoundation/hardhat-chai-matchers");
 
 describe("BloodSupplyChain Smart Contract", function () {
   let BloodSupplyChain;
@@ -170,7 +171,9 @@ describe("BloodSupplyChain Smart Contract", function () {
           sampleUnitId,
           hospitalA.address,
           "REQ-2026-100",
-          updatedHash
+          updatedHash,
+          sampleBloodGroup,
+          sampleComponent
         )
       ).to.be.revertedWith("Only available units can be reserved");
     });
@@ -195,7 +198,10 @@ describe("BloodSupplyChain Smart Contract", function () {
 
     it("Should allow blood bank to reserve available unit for hospital request", async function () {
       await expect(
-        contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalA.address, "REQ-101", updatedHash)
+        contract.connect(bloodBank).reserveBloodUnit(
+          sampleUnitId, hospitalA.address, "REQ-101", updatedHash,
+          sampleBloodGroup, sampleComponent
+        )
       )
         .to.emit(contract, "BloodUnitReserved")
         .withArgs(sampleUnitId, hospitalA.address, "REQ-101", updatedHash);
@@ -206,16 +212,43 @@ describe("BloodSupplyChain Smart Contract", function () {
     });
 
     it("Should prevent double reservation of the same unit", async function () {
-      await contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalA.address, "REQ-101", updatedHash);
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, "REQ-101", updatedHash,
+        sampleBloodGroup, sampleComponent
+      );
 
       await expect(
-        contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalB.address, "REQ-102", updatedHash)
+        contract.connect(bloodBank).reserveBloodUnit(
+          sampleUnitId, hospitalB.address, "REQ-102", updatedHash,
+          sampleBloodGroup, sampleComponent
+        )
       ).to.be.revertedWith("Only available units can be reserved");
+    });
+
+    it("Should reject reservation when blood group does not match request", async function () {
+      await expect(
+        contract.connect(bloodBank).reserveBloodUnit(
+          sampleUnitId, hospitalA.address, "REQ-103", updatedHash,
+          "AB-", sampleComponent
+        )
+      ).to.be.revertedWith("Unit blood group does not match request");
+    });
+
+    it("Should reject reservation when component type does not match request", async function () {
+      await expect(
+        contract.connect(bloodBank).reserveBloodUnit(
+          sampleUnitId, hospitalA.address, "REQ-104", updatedHash,
+          sampleBloodGroup, "Platelets"
+        )
+      ).to.be.revertedWith("Unit component type does not match request");
     });
 
     it("Should complete dispatch and receipt cycle", async function () {
       // 1. Reserve
-      await contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalA.address, "REQ-101", updatedHash);
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, "REQ-101", updatedHash,
+        sampleBloodGroup, sampleComponent
+      );
 
       // 2. Dispatch
       await expect(
@@ -254,7 +287,10 @@ describe("BloodSupplyChain Smart Contract", function () {
     });
 
     it("Should reject receipt from unauthorized hospital", async function () {
-      await contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalA.address, "REQ-101", updatedHash);
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, "REQ-101", updatedHash,
+        sampleBloodGroup, sampleComponent
+      );
       await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "WAYBILL-1", updatedHash);
 
       // Hospital B tries to claim unit assigned to Hospital A
@@ -272,7 +308,10 @@ describe("BloodSupplyChain Smart Contract", function () {
       const expiry = now + 35 * 24 * 3600;
       await contract.connect(bloodBank).registerBloodUnit(sampleUnitId, sampleBloodGroup, sampleComponent, now, expiry, initialHash);
       await contract.connect(bloodBank).updateScreeningStatus(sampleUnitId, 1, "Passed", updatedHash);
-      await contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalA.address, "REQ-A", updatedHash);
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, "REQ-A", updatedHash,
+        sampleBloodGroup, sampleComponent
+      );
       await contract.connect(bloodBank).dispatchBloodUnit(sampleUnitId, hospitalA.address, "SHIP-1", updatedHash);
       await contract.connect(hospitalA).receiveBloodUnit(sampleUnitId, updatedHash);
     });
@@ -334,7 +373,10 @@ describe("BloodSupplyChain Smart Contract", function () {
       const expiry = now + 35 * 24 * 3600;
       await contract.connect(bloodBank).registerBloodUnit(sampleUnitId, sampleBloodGroup, sampleComponent, now, expiry, initialHash);
       await contract.connect(bloodBank).updateScreeningStatus(sampleUnitId, 1, "Passed", updatedHash);
-      await contract.connect(bloodBank).reserveBloodUnit(sampleUnitId, hospitalA.address, "REQ-HIST", updatedHash);
+      await contract.connect(bloodBank).reserveBloodUnit(
+        sampleUnitId, hospitalA.address, "REQ-HIST", updatedHash,
+        sampleBloodGroup, sampleComponent
+      );
 
       const events = await contract.getUnitEvents(sampleUnitId);
       expect(events.length).to.equal(3);

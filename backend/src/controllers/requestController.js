@@ -227,7 +227,9 @@ exports.allocateUnits = async (req, res, next) => {
           unitId,
           bloodReq.hospitalWallet || '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
           requestId,
-          newDataHash
+          newDataHash,
+          bloodReq.bloodGroup,
+          bloodReq.componentType
         );
         if (blockchainResult) {
           unit.blockchainHistory.push({
