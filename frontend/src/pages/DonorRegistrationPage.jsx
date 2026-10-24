@@ -1,19 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   Droplet,
-  User,
-  Mail,
-  Lock,
-  Phone,
-  Calendar,
-  MapPin,
   Upload,
   Camera,
   AlertCircle,
   CheckCircle2,
+  SmilePlus,
+  ToggleLeft,
+  ToggleRight,
+  Video,
   ShieldAlert,
+  Info,
 } from 'lucide-react';
 
 export default function DonorRegistrationPage() {
@@ -41,6 +40,12 @@ export default function DonorRegistrationPage() {
   const [photoFile, setPhotoFile] = useState(null);
   const [docFile, setDocFile] = useState(null);
 
+  // Affective state / anti-duress demo
+  const [affectiveEnabled, setAffectiveEnabled] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [emotionResult, setEmotionResult] = useState(null); // { emotion, confidence, duress }
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -48,6 +53,40 @@ export default function DonorRegistrationPage() {
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  // Simulated emotion detection — no real ML; demonstrates the paper concept only
+  const DEMO_EMOTIONS = [
+    { emotion: 'Calm', confidence: 0.97, duress: false },
+    { emotion: 'Happy', confidence: 0.94, duress: false },
+    { emotion: 'Neutral', confidence: 0.91, duress: false },
+  ];
+
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+      setCameraActive(true);
+      setEmotionResult(null);
+    } catch {
+      setError('Camera access denied. You can still register manually.');
+    }
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraActive(false);
+  }, []);
+
+  const captureAndAnalyse = useCallback(() => {
+    // Simulate a 1-second "analysis" then pick a deterministic demo result
+    const result = DEMO_EMOTIONS[Math.floor(Math.random() * DEMO_EMOTIONS.length)];
+    setTimeout(() => {
+      setEmotionResult(result);
+      stopCamera();
+    }, 1000);
+  }, [stopCamera]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -86,6 +125,11 @@ export default function DonorRegistrationPage() {
 
       if (photoFile) payload.append('photo', photoFile);
       if (docFile) payload.append('document', docFile);
+
+      if (affectiveEnabled && emotionResult) {
+        payload.append('emotionDetected', emotionResult.emotion);
+        payload.append('affectiveConsentStatus', emotionResult.duress ? 'false' : 'true');
+      }
 
       await registerDonor(payload);
       navigate('/donor-dashboard');
@@ -288,6 +332,105 @@ export default function DonorRegistrationPage() {
               </div>
             </div>
 
+
+            {/* 4. Base Paper Demo: Affective State & Anti-Duress Check */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  if (affectiveEnabled) { stopCamera(); setEmotionResult(null); }
+                  setAffectiveEnabled((v) => !v);
+                }}
+                className="w-full flex items-center justify-between px-5 py-4 bg-slate-50 hover:bg-slate-100 transition-colors"
+              >
+                <div className="flex items-center space-x-3">
+                  <SmilePlus className="w-5 h-5 text-indigo-500" />
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-slate-800">
+                      Base Paper Demonstration: Affective State &amp; Anti-Duress Check
+                    </p>
+                    <p className="text-xs text-slate-500">SSRN paper section 5 — optional demo feature</p>
+                  </div>
+                </div>
+                {affectiveEnabled
+                  ? <ToggleRight className="w-7 h-7 text-indigo-500" />
+                  : <ToggleLeft className="w-7 h-7 text-slate-400" />}
+              </button>
+
+              {affectiveEnabled && (
+                <div className="px-5 py-4 space-y-4 bg-white">
+                  {/* Clinical safety disclaimer */}
+                  <div className="flex items-start space-x-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                    <span>
+                      <strong>Clinical Safety Notice:</strong> Facial expressions are <em>never</em> treated as proof
+                      of medical consent and will never block a genuine donor. This demo illustrates the coercion-detection
+                      concept from the SSRN paper only. Manual verification always takes precedence.
+                    </span>
+                  </div>
+
+                  {/* Camera / result area */}
+                  {!emotionResult ? (
+                    <div className="space-y-3">
+                      <div className="relative w-full aspect-video bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center">
+                        {cameraActive
+                          ? <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                          : <div className="text-slate-500 text-xs flex flex-col items-center space-y-2">
+                              <Video className="w-8 h-8" />
+                              <span>Camera inactive</span>
+                            </div>
+                        }
+                      </div>
+                      <div className="flex space-x-3">
+                        {!cameraActive
+                          ? <button type="button" onClick={startCamera}
+                              className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors flex items-center justify-center space-x-1">
+                              <Camera className="w-4 h-4" /><span>Start Camera</span>
+                            </button>
+                          : <>
+                              <button type="button" onClick={captureAndAnalyse}
+                                className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors">
+                                Capture &amp; Analyse
+                              </button>
+                              <button type="button" onClick={stopCamera}
+                                className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold transition-colors">
+                                Cancel
+                              </button>
+                            </>
+                        }
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`p-4 rounded-xl border ${
+                      emotionResult.duress
+                        ? 'bg-rose-50 border-rose-300'
+                        : 'bg-emerald-50 border-emerald-300'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">
+                            Detected: <span className={emotionResult.duress ? 'text-rose-600' : 'text-emerald-600'}>
+                              {emotionResult.emotion}
+                            </span>
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Confidence: {(emotionResult.confidence * 100).toFixed(0)}%
+                            {emotionResult.duress
+                              ? ' — Possible coercion signal detected. Manual review recommended.'
+                              : ' — No duress indicators detected.'}
+                          </p>
+                        </div>
+                        <CheckCircle2 className={`w-6 h-6 ${emotionResult.duress ? 'text-rose-500' : 'text-emerald-500'}`} />
+                      </div>
+                      <button type="button" onClick={() => { setEmotionResult(null); }}
+                        className="mt-3 text-xs text-slate-500 underline hover:text-slate-700">
+                        Re-capture
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <button
               type="submit"

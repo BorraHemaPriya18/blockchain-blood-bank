@@ -6,14 +6,14 @@ import StatusBadge from '../components/StatusBadge';
 import {
   Heart,
   Droplet,
-  Clock,
   ShieldCheck,
   Calendar,
   Award,
   ArrowRight,
   CheckCircle,
   ExternalLink,
-  Search,
+  SmilePlus,
+  Info,
 } from 'lucide-react';
 
 export default function DonorDashboard() {
@@ -164,13 +164,29 @@ export default function DonorDashboard() {
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
-            <Award className="w-5 h-5" />
+            <SmilePlus className="w-5 h-5" />
           </div>
-          <h3 className="font-bold text-slate-900 text-sm">Privacy Guarantee</h3>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Your name, address, and medical records are stored strictly off-chain. Only your cryptographic donor
-            pseudonym links to the immutable blockchain token.
-          </p>
+          <h3 className="font-bold text-slate-900 text-sm">Affective State Check</h3>
+          {profile?.affectiveCheck?.enabled ? (
+            <>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Detected: <span className="font-bold text-indigo-700">{profile.affectiveCheck.emotionDetected}</span>
+                {' '}({(profile.affectiveCheck.confidenceScore * 100).toFixed(0)}% confidence)
+                {profile.affectiveCheck.underDuressFlag
+                  ? <span className="ml-1 text-rose-600 font-semibold">— Duress flag raised; manual review recommended.</span>
+                  : <span className="ml-1 text-emerald-600 font-semibold">— No duress indicators.</span>}
+              </p>
+              <div className="flex items-start space-x-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>SSRN paper §5 demo only. Facial expressions are never treated as proof of consent and never block genuine donors.</span>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Not performed during registration. This optional demo feature (SSRN paper §5) detects potential coercion
+              via facial expression analysis. Manual verification always takes precedence.
+            </p>
+          )}
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
