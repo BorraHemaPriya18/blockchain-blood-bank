@@ -4,9 +4,9 @@ pragma solidity ^0.8.20;
 /**
  * @title BloodSupplyChain
  * @notice Decentralized vein-to-vein blood supply chain tracker.
- * @dev v2.1 — approveBloodRequest atomically reserves unit; updateScreeningStatus
+ * @dev v2.2 - approveBloodRequest atomically reserves unit; updateScreeningStatus
  *      enforces bloodBank ownership; dispatchBloodUnit restricted to Reserved only
- *      with destination validation. All three hardening changes confirmed in this file.
+ *      with destination validation.
  */
 contract BloodSupplyChain {
     address public admin;
@@ -63,7 +63,7 @@ contract BloodSupplyChain {
         string bloodGroup;
         string componentType;
         address assignedBloodBank;
-        string assignedUnitId;   // unit locked at approval time
+        string assignedUnitId;
         bool isApproved;
         bool isFulfilled;
         bool exists;
@@ -206,7 +206,7 @@ contract BloodSupplyChain {
     function updateScreeningStatus(
         string calldata _unitId,
         ScreeningStatus _screeningStatus,
-        string calldata /* _remarks */,
+        string calldata,
         string calldata _dataHash
     ) external onlyAuthorizedBloodBank unitExists(_unitId) {
         BloodUnit storage unit = bloodUnits[_unitId];
@@ -232,7 +232,6 @@ contract BloodSupplyChain {
         }
     }
 
-    // Struct to hold request validation parameters, avoids stack-too-deep
     struct ReserveParams {
         string requestBloodGroup;
         string requestComponentType;
@@ -250,17 +249,14 @@ contract BloodSupplyChain {
         require(unit.status == UnitStatus.Available, "Only available units can be reserved");
         require(unit.screeningStatus == ScreeningStatus.Passed, "Unit has not passed screening");
         require(hospitals[_hospital].isAuthorized || _hospital == admin, "Hospital is not authorized");
-        // Enforce blood group match
         require(
             keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(_requestBloodGroup)),
             "Unit blood group does not match request"
         );
-        // Enforce component type match
         require(
             keccak256(bytes(unit.componentType)) == keccak256(bytes(_requestComponentType)),
             "Unit component type does not match request"
         );
-        // Enforce unit belongs to the calling blood bank
         require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit does not belong to this blood bank");
 
         unit.status = UnitStatus.Reserved;
@@ -385,12 +381,11 @@ contract BloodSupplyChain {
         require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit belongs to another blood bank");
         require(unit.currentCustodian == unit.bloodBank, "Unit is not held by its blood bank");
 
-        // Atomically reserve the unit to prevent duplicate allocation
+        // Reserve the unit immediately to prevent duplicate allocation
         unit.status = UnitStatus.Reserved;
         unit.hospital = _hospital;
         unit.requestId = _requestId;
 
-        // Store the actual owner bank so admin approvals are still traceable
         bloodRequests[_requestId] = BloodRequestRecord({
             requestId: _requestId,
             hospital: _hospital,
@@ -422,28 +417,18 @@ contract BloodSupplyChain {
 
         BloodUnit storage unit = bloodUnits[unitId];
 
-        // Unit must have been physically delivered (Received) before fulfillment
         require(unit.status == UnitStatus.Received, "Unit must be received before fulfillment");
-
-        // Delivery must be to the correct hospital — both assignment and physical custody must match
         require(unit.hospital == req.hospital, "Unit was not delivered to the requesting hospital");
         require(unit.currentCustodian == req.hospital, "Unit is not in custody of the requesting hospital");
-
-        // Re-verify blood group against the locked request requirement
         require(
             keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(req.bloodGroup)),
             "Unit blood group does not match request"
         );
-
-        // Re-verify component type against the locked request requirement
         require(
             keccak256(bytes(unit.componentType)) == keccak256(bytes(req.componentType)),
             "Unit component type does not match request"
         );
-
-        // Confirm the unit still belongs to the fulfilling blood bank
         require(unit.bloodBank == msg.sender || msg.sender == admin, "Unit does not belong to this blood bank");
-
         require(block.timestamp < unit.expiryTimestamp, "Unit has expired");
 
         req.isFulfilled = true;
